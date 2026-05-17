@@ -57,7 +57,7 @@
 					<el-button type="danger" @click="abortJob">中止任务</el-button>
 					<el-button v-if="taskStatus == 'running' && !isPaused" type="warning" @click="handlePause">暂停任务</el-button>
                     <el-button v-if="taskStatus == 'running' && isPaused" type="success" @click="handleResume">恢复任务</el-button>
-                    <el-button type="danger" @click="handleAbort">中止任务</el-button>
+
 				</div>
 			</div>
 			<div class="current-box-bottom">
