@@ -475,20 +475,25 @@ class JobTask:
                 # 视频文件过滤
                 video_extensions = ('.mp4', '.mkv', '.avi', '.mov', '.ts', '.iso', '.cas')
                 is_video_file = any(key.lower().endswith(ext) for ext in video_extensions)
-                
                 if not is_video_file:
                     continue
                 
                 # 获取源文件的完整文件名（带扩展名）
                 src_full_filename = key.split('/')[-1] if '/' in key else key
                 
+                # 【核心修改点】：如果源文件本身就是 .cas 文件，比对时也需要去掉 .cas 后缀才能跟目标前缀匹配
+                if src_full_filename.lower().endswith('.cas'):
+                    match_key = src_full_filename.rsplit('.', 1)[0]
+                else:
+                    match_key = src_full_filename
+
                 # 调试信息
-                logger.info(f"[CAS调试] 检查源文件: {src_full_filename}")
-                logger.info(f"[CAS调试] 比较: 源完整文件名='{src_full_filename}' vs 目标前缀集合={dst_filename_prefixes}")
-                logger.info(f"[CAS调试] 是否在集合中: {src_full_filename in dst_filename_prefixes}")
+                logger.info(f"[CAS调试] 检查源文件: {src_full_filename}，用于比对的Key: '{match_key}'")
+                logger.info(f"[CAS调试] 比较: match_key='{match_key}' vs 目标前缀集合={dst_filename_prefixes}")
+                logger.info(f"[CAS调试] 是否在集合中: {match_key in dst_filename_prefixes}")
                 
-                # CAS检查：源文件完整文件名 是否在 目标文件前缀集合中
-                if src_full_filename in dst_filename_prefixes:
+                # CAS检查：修正为使用 match_key 进行比对
+                if match_key in dst_filename_prefixes:
                     # 找到匹配，跳过同步
                     logger.info(f"✅ 跳过 {src_full_filename}，目标目录存在相同前缀文件")
                     continue
