@@ -139,6 +139,11 @@ class JobTask:
         # 首个文件开始同步时间
         self.firstSync = None
         # 手动中止标识
+
+        # 【新增：手动暂停标识】
+        
+        self.pauseFlag = False
+        
         self.breakFlag = False
         syncThread = threading.Thread(target=self.sync)
         syncThread.start()
@@ -146,6 +151,29 @@ class JobTask:
         submitThread = threading.Thread(target=self.taskSubmit)
         submitThread.start()
 
+
+
+    def taskSubmit(self):
+        """队列检验与提交"""
+        while True:
+            if self.breakFlag:
+                break
+            time.sleep(0.5)
+            
+            # 【新增：暂停拦截逻辑】
+            # 如果处于暂停状态，就在这里循环等待，不往下走提交逻辑
+            if self.pauseFlag:
+                logger = logging.getLogger()
+                logger.info("⏸️ [任务暂停] 暂停向目标端投送新任务...")
+                while self.pauseFlag and not self.breakFlag:
+                    time.sleep(1)
+                if not self.pauseFlag:
+                    logger.info("▶️ [任务恢复] 恢复任务投送。")
+
+            doingNums = len(self.doing.keys())
+            waitingNums = len(self.waiting)
+            # ... 后面保持原样不变 ...
+    
     def getCurrent(self):
         """
         总结并返回详情（高实时性）
@@ -694,12 +722,19 @@ class JobClient:
             self.scheduledJob.resume()
 
     def abortJob(self):
-        """
-        中止作业
-        :return:
-        """
+        """中止作业"""
         if self.currentJobTask:
             self.currentJobTask.breakFlag = True
+
+    def pauseJob(self):
+        """【新增】暂停作业投送"""
+        if self.currentJobTask:
+            self.currentJobTask.pauseFlag = True
+
+    def resumePauseJob(self):
+        """【新增】恢复因暂停挂起的作业"""
+        if self.currentJobTask:
+            self.currentJobTask.pauseFlag = False
 
     def stopJob(self, remove=False):
         """
