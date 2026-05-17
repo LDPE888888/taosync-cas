@@ -86,3 +86,27 @@ class Job(BaseHandler):
             jobService.removeJobClient(req['id'])
         elif 'taskId' in req:
             taskService.removeTask(req['taskId'])
+
+
+
+
+
+    @app.route('/api/job/pause', methods=['POST'])
+def pause_job():
+    data = request.json
+    job_id = data.get('jobId')
+    client = jobService.getClient(job_id)
+    if client:
+        client.pauseJob()
+        return jsonify({"code": 200, "msg": "已暂停投送"})
+    return jsonify({"code": 400, "msg": "未找到运行中的作业"})
+
+    @app.route('/api/job/resume', methods=['POST'])
+def resume_job():
+    data = request.json
+    job_id = data.get('jobId')
+    client = jobService.getClient(job_id)
+    if client:
+        client.resumePauseJob()
+        return jsonify({"code": 200, "msg": "已恢复投送"})
+    return jsonify({"code": 400, "msg": "恢复失败"})
