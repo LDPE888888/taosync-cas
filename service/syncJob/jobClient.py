@@ -431,93 +431,82 @@ class JobTask:
     def syncWithHave(self, srcPath, dstPath, spec, srcRootPath, dstRootPath, firstDst):
         """
         扫描并同步-目标目录存在目录
-        修改：源文件使用完整文件名，目标文件只移除最后的扩展名
+        修改：确保源文件的 .cas 与目标端的 .cas 能做到 1:1 精确匹配，防止重复复制引发 'tasks' 报错
         """
         if self.breakFlag:
             return
-        
+
         logger = logging.getLogger()
-        
         try:
             srcFiles = self.listDir(srcPath, firstDst, spec, srcRootPath)
             dstFiles = self.listDir(dstPath, firstDst, spec, dstRootPath, False)
         except Exception as e:
             logger.error(f"获取目录列表失败: {e}")
             return
-        
-        # 构建目标端文件名前缀集合（只移除最后的扩展名）
+
+        # 1. 建立目标端【完整文件名】的绝对集合（不切任何后缀，只拿最后的文件名）
+        dst_full_filenames = set()
+        # 2. 建立原作者的前缀集合（作为兜底兼容）
         dst_filename_prefixes = set()
-        prefix_debug_info = []
         
         for dst_key in dstFiles.keys():
             if not dst_key.endswith('/'):
-                # 获取目标文件名（去掉路径）
                 filename = dst_key.split('/')[-1]
+                # 把目标盘已有的完整名字放进去（例如：'101忠狗...mkv.cas'）
+                dst_full_filenames.add(filename)
                 
-                # 只移除最后的扩展名
                 if '.' in filename:
-                    filename_prefix = filename.rsplit('.', 1)[0]  # 只移除最后一个点后的内容
+                    filename_prefix = filename.rsplit('.', 1)[0]
                 else:
                     filename_prefix = filename
-                
                 dst_filename_prefixes.add(filename_prefix)
-                prefix_debug_info.append(f"目标文件: {dst_key} -> 提取前缀: '{filename_prefix}'")
-        
-        # 调试信息
-        logger.info(f"[CAS调试] 目标目录 {dstPath} 前缀集合构建:")
-        for info in prefix_debug_info:
-            logger.info(f"[CAS调试]   {info}")
-        logger.info(f"[CAS调试] 最终目标前缀集合: {dst_filename_prefixes}")
-        
+
+        # 遍历源目录（本地 NAS）
         for key in srcFiles.keys():
             # 如果是文件
             if not key.endswith('/'):
-                # 视频文件过滤
+                # 支持的白名单后缀（包含你的 .cas）
                 video_extensions = ('.mp4', '.mkv', '.avi', '.mov', '.ts', '.iso', '.cas')
                 is_video_file = any(key.lower().endswith(ext) for ext in video_extensions)
                 if not is_video_file:
                     continue
-                
-                # 获取源文件的完整文件名（带扩展名）
+
+                # 获取源文件的完整文件名（例如：'101忠狗...mkv.cas'）
                 src_full_filename = key.split('/')[-1] if '/' in key else key
                 
-                # 【核心修改点】：如果源文件本身就是 .cas 文件，比对时也需要去掉 .cas 后缀才能跟目标前缀匹配
+                # 如果源文件是 .cas，提取去掉 .cas 的前缀（用于跟原作者的集合比对）
                 if src_full_filename.lower().endswith('.cas'):
                     match_key = src_full_filename.rsplit('.', 1)[0]
                 else:
                     match_key = src_full_filename
 
-                # 调试信息
-                logger.info(f"[CAS调试] 检查源文件: {src_full_filename}，用于比对的Key: '{match_key}'")
-                logger.info(f"[CAS调试] 比较: match_key='{match_key}' vs 目标前缀集合={dst_filename_prefixes}")
-                logger.info(f"[CAS调试] 是否在集合中: {match_key in dst_filename_prefixes}")
-                
-                # CAS检查：修正为使用 match_key 进行比对
-                if match_key in dst_filename_prefixes:
-                    # 找到匹配，跳过同步
-                    logger.info(f"✅ 跳过 {src_full_filename}，目标目录存在相同前缀文件")
+                # 【双重保险去重检查】
+                # 检查1：本地的完整文件名直接在目标盘里存在 (专门治你遇到的 .cas 重复复制问题)
+                # 检查2：本地的前缀在目标盘前缀里存在 (保留原作者逻辑)
+                if (src_full_filename in dst_full_filenames) or (match_key in dst_filename_prefixes):
+                    # 找到匹配，说明目标端已经有了，直接跳过
+                    logger.info(f"✅ [跳过复制] {src_full_filename} 在目标目录已存在")
                     continue
                 else:
-                    # 没有匹配，执行同步
-                    logger.info(f"🔄 同步 {src_full_filename}")
+                    # 确定是新产生的 .cas 文件，执行同步
+                    logger.info(f"🔄 [开始同步] 发送新文件: {src_full_filename}")
                     self.copyFile(srcPath, dstPath, key, srcFiles[key])
-            
+
             # 如果是目录
             else:
                 # 目标目录没有这个目录
                 if key not in dstFiles:
-                    # 只创建目录，不处理目录下的文件
                     logger.info(f"📁 发现新子目录: {key}，创建目录但不处理文件")
                     self.syncWithOutHave(srcPath + key, dstPath + key, spec, srcRootPath, dstRootPath, firstDst)
                 # 目标目录有这个目录，继续递归
                 else:
                     self.syncWithHave(srcPath + key, dstPath + key, spec, srcRootPath, dstRootPath, firstDst)
-        
+
         # 保持原作者的全同步模式删除逻辑
         if self.job['method'] == 1:
             for dstKey in dstFiles.keys():
                 if dstKey not in srcFiles:
-                    self.delFile(dstPath, dstKey, dstFiles[dstKey])            
+                    self.delFile(dstPath, dstKey, dstFiles[dstKey])      
 
     def syncWithOutHave(self, srcPath, dstPath, spec, srcRootPath, dstRootPath, firstDst):
         """
